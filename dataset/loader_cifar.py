@@ -209,7 +209,7 @@ class CIFAR10(data.Dataset):
             target = self.target_transform(target)
 
         if (self.split is 'unlabel'):
-            return img, img1, target
+            return (img, img1), target
         else:
             return img, target
 

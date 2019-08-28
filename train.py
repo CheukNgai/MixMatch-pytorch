@@ -150,6 +150,7 @@ def main():
     val_set = dataloader(root=data_dir, n_label=args.n_labeled, n_val=args.n_val, split='valid', download=True, transform=transform_test, boundary=0)
     test_set = dataloader(root=data_dir, n_label=args.n_labeled, n_val=args.n_val, split='test', download=True, transform=transform_test)
     
+    print("dataset info")
     print("label size: " + str(train_labeled_set.__len__()))
     print("unlabel size: " + str(train_unlabeled_set.__len__()))
     print("val size: " + str(val_set.__len__()))
