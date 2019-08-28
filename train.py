@@ -351,7 +351,7 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        ema_optimizer.step()
+        ema_optimizer.step_without_EMA()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -373,7 +373,7 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
         bar.next()
     bar.finish()
 
-    ema_optimizer.step(bn=True)
+    ema_optimizer.step_without_EMA(bn=True)
 
     return (losses.avg, losses_x.avg, losses_u.avg,)
 
@@ -476,6 +476,22 @@ class WeightEMA(object):
             for param, ema_param in zip(self.model.parameters(), self.ema_model.parameters()):
                 ema_param.data.mul_(self.alpha)
                 ema_param.data.add_(param.data.detach() * one_minus_alpha)
+                # customized weight decay
+                param.data.mul_(1 - self.wd)
+
+    def step_without_EMA(self, bn= False):
+        if bn:
+            # copy batchnorm stats to ema model
+            for ema_param, tmp_param in zip(self.ema_model.parameters(), self.tmp_model.parameters()):
+                tmp_param.data.copy_(ema_param.data.detach())
+
+            self.ema_model.load_state_dict(self.model.state_dict())
+
+            for ema_param, tmp_param in zip(self.ema_model.parameters(), self.tmp_model.parameters()):
+                ema_param.data.copy_(tmp_param.data.detach())
+        else:
+            for param, ema_param in zip(self.model.parameters(), self.ema_model.parameters()):
+                ema_param.data.copy_(param.data.detach())
                 # customized weight decay
                 param.data.mul_(1 - self.wd)
 
