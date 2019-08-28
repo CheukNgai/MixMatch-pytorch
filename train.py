@@ -21,6 +21,9 @@ import models.wideresnet as models
 import dataset.cifar10 as dataset
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
 from tensorboardX import SummaryWriter
+import dataset.loader_cifar as cifar
+import dataset.loader_cifar_zca as cifar_zca
+import dataset.loader_svhn as svhn
 
 parser = argparse.ArgumentParser(description='PyTorch MixMatch Training')
 # Optimization options
@@ -43,6 +46,9 @@ parser.add_argument('--gpu', default='0', type=str,
 #Method options
 parser.add_argument('--n-labeled', type=int, default=250,
                         help='Number of labeled data')
+parser.add_argument('--n-val', type=int, default=5000,
+                        help='Number of validation data')
+
 parser.add_argument('--val-iteration', type=int, default=1024,
                         help='Number of labeled data')
 parser.add_argument('--out', default='result',
@@ -51,6 +57,8 @@ parser.add_argument('--alpha', default=0.75, type=float)
 parser.add_argument('--lambda-u', default=75, type=float)
 parser.add_argument('--T', default=0.5, type=float)
 parser.add_argument('--ema-decay', default=0.999, type=float)
+parser.add_argument('--dataset', '-d', metavar='DATASET', default='cifar10_zca',
+                    help='dataset: '+' (default: cifar10)', choices=['cifar10', 'cifar10_zca', 'svhn'])
 
 
 args = parser.parse_args()
@@ -73,19 +81,81 @@ def main():
     if not os.path.isdir(args.out):
         mkdir_p(args.out)
 
-    # Data
-    print(f'==> Preparing cifar10')
-    transform_train = transforms.Compose([
-        dataset.RandomPadandCrop(32),
-        dataset.RandomFlip(),
-        dataset.ToTensor(),
-    ])
+    #### Todos(Jeremy):Data loading code
 
-    transform_val = transforms.Compose([
-        dataset.ToTensor(),
-    ])
 
-    train_labeled_set, train_unlabeled_set, val_set, test_set = dataset.get_cifar10('./data', args.n_labeled, transform_train=transform_train, transform_val=transform_val)
+    class TransformTwice:
+        def __init__(self, transform):
+            self.transform = transform
+
+        def __call__(self, inp):
+            out1 = self.transform(inp)
+            out2 = self.transform(inp)
+            return out1, out2
+    if args.dataset == 'cifar10':
+        dataloader = cifar.CIFAR10
+        num_classes = 10
+        data_dir = '/tmp/'
+ 
+        normalize = transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
+                                         std=[0.2023, 0.1994, 0.2010])
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=2),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            normalize,
+        ])
+ 
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            normalize,
+        ])    
+
+    elif args.dataset == 'cifar10_zca':
+        dataloader = cifar_zca.CIFAR10
+        num_classes = 10
+        data_dir = 'cifar10_zca/cifar10_gcn_zca_v2.npz'
+
+        # transform is implemented inside zca dataloader 
+        transform_train = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+ 
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+
+     
+    elif args.dataset == 'svhn':
+        dataloader = svhn.SVHN
+        num_classes = 10
+        data_dir = '/tmp/'
+ 
+        normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5],
+                                         std=[0.5, 0.5, 0.5])
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=2),
+            transforms.ToTensor(),
+            normalize,
+        ])
+ 
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            normalize,
+        ])
+
+
+    train_labeled_set = dataloader(root=data_dir, n_label=args.n_labeled, n_val=args.n_val, split='label', download=True, transform=transform_train, boundary=0)
+    train_unlabeled_set = dataloader(root=data_dir, n_label=args.n_labeled, n_val=args.n_val, split='unlabel', download=True, transform=transform_train, boundary=0)
+    val_set = dataloader(root=data_dir, n_label=args.n_labeled, n_val=args.n_val, split='valid', download=True, transform=transform_test, boundary=0)
+    test_set = dataloader(root=data_dir, n_label=args.n_labeled, n_val=args.n_val, split='test', download=True, transform=transform_test)
+    
+    print("label size: " + str(train_labeled_set.__len__()))
+    print("unlabel size: " + str(train_unlabeled_set.__len__()))
+    print("val size: " + str(val_set.__len__()))
+    print("test size: " + str(test_set.__len__()))
+
+    #######
     labeled_trainloader = data.DataLoader(train_labeled_set, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=True)
     unlabeled_trainloader = data.DataLoader(train_unlabeled_set, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=True)
     val_loader = data.DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=0)
