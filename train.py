@@ -56,7 +56,7 @@ parser.add_argument('--out', default='result',
 parser.add_argument('--alpha', default=0.75, type=float)
 parser.add_argument('--lambda-u', default=75, type=float)
 parser.add_argument('--T', default=0.5, type=float)
-parser.add_argument('--ema-decay', default=0.999, type=float)
+# parser.add_argument('--ema-decay', default=0.999, type=float)
 parser.add_argument('--dataset', '-d', metavar='DATASET', default='cifar10_zca',
                     help='dataset: '+' (default: cifar10)', choices=['cifar10', 'cifar10_zca', 'svhn'])
 
@@ -176,7 +176,7 @@ def main():
         return model
 
     model = create_model()
-    ema_model = create_model(ema=True)
+    # ema_model = create_model(ema=True)
 
     cudnn.benchmark = True
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
@@ -185,7 +185,7 @@ def main():
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
-    ema_optimizer= WeightEMA(model, ema_model, alpha=args.ema_decay)
+    # ema_optimizer= WeightEMA(model, ema_model, alpha=args.ema_decay)
     start_epoch = 0
 
     # Resume
@@ -199,7 +199,7 @@ def main():
         best_acc = checkpoint['best_acc']
         start_epoch = checkpoint['epoch']
         model.load_state_dict(checkpoint['state_dict'])
-        ema_model.load_state_dict(checkpoint['ema_state_dict'])
+        # ema_model.load_state_dict(checkpoint['ema_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         logger = Logger(os.path.join(args.resume, 'log.txt'), title=title, resume=True)
     else:
@@ -214,10 +214,10 @@ def main():
 
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
-        train_loss, train_loss_x, train_loss_u = train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_optimizer, train_criterion, epoch, use_cuda)
-        _, train_acc = validate(labeled_trainloader, ema_model, criterion, epoch, use_cuda, mode='Train Stats')
-        val_loss, val_acc = validate(val_loader, ema_model, criterion, epoch, use_cuda, mode='Valid Stats')
-        test_loss, test_acc = validate(test_loader, ema_model, criterion, epoch, use_cuda, mode='Test Stats ')
+        train_loss, train_loss_x, train_loss_u = train(labeled_trainloader, unlabeled_trainloader, model, optimizer, train_criterion, epoch, use_cuda)
+        _, train_acc = validate(labeled_trainloader, model, criterion, epoch, use_cuda, mode='Train Stats')
+        val_loss, val_acc = validate(val_loader, model, criterion, epoch, use_cuda, mode='Valid Stats')
+        test_loss, test_acc = validate(test_loader, model, criterion, epoch, use_cuda, mode='Test Stats ')
 
         step = args.batch_size * args.val_iteration * (epoch + 1)
 
@@ -240,7 +240,6 @@ def main():
         save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
-                'ema_state_dict': ema_model.state_dict(),
                 'acc': val_acc,
                 'best_acc': best_acc,
                 'optimizer' : optimizer.state_dict(),
@@ -256,7 +255,7 @@ def main():
     print(np.mean(test_accs[-20:]))
 
 
-def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_optimizer, criterion, epoch, use_cuda):
+def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, criterion, epoch, use_cuda):
 
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -351,7 +350,7 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        ema_optimizer.step_without_EMA()
+        # ema_optimizer.step_without_EMA()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -373,7 +372,7 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
         bar.next()
     bar.finish()
 
-    ema_optimizer.step_without_EMA(bn=True)
+    # ema_optimizer.step_without_EMA(bn=True)
 
     return (losses.avg, losses_x.avg, losses_u.avg,)
 
@@ -450,50 +449,50 @@ class SemiLoss(object):
 
         return Lx, Lu, args.lambda_u * linear_rampup(epoch)
 
-class WeightEMA(object):
-    def __init__(self, model, ema_model, alpha=0.999):
-        self.model = model
-        self.ema_model = ema_model
-        self.alpha = alpha
-        self.tmp_model = models.WideResNet(num_classes=10).cuda()
-        self.wd = 0.02 * args.lr
+# class WeightEMA(object):
+#     def __init__(self, model, ema_model, alpha=0.999):
+#         self.model = model
+#         self.ema_model = ema_model
+#         self.alpha = alpha
+#         self.tmp_model = models.WideResNet(num_classes=10).cuda()
+#         self.wd = 0.02 * args.lr
 
-        for param, ema_param in zip(self.model.parameters(), self.ema_model.parameters()):
-            ema_param.data.copy_(param.data)
+#         for param, ema_param in zip(self.model.parameters(), self.ema_model.parameters()):
+#             ema_param.data.copy_(param.data)
 
-    def step(self, bn=False):
-        if bn:
-            # copy batchnorm stats to ema model
-            for ema_param, tmp_param in zip(self.ema_model.parameters(), self.tmp_model.parameters()):
-                tmp_param.data.copy_(ema_param.data.detach())
+#     def step(self, bn=False):
+#         if bn:
+#             # copy batchnorm stats to ema model
+#             for ema_param, tmp_param in zip(self.ema_model.parameters(), self.tmp_model.parameters()):
+#                 tmp_param.data.copy_(ema_param.data.detach())
 
-            self.ema_model.load_state_dict(self.model.state_dict())
+#             self.ema_model.load_state_dict(self.model.state_dict())
 
-            for ema_param, tmp_param in zip(self.ema_model.parameters(), self.tmp_model.parameters()):
-                ema_param.data.copy_(tmp_param.data.detach())
-        else:
-            one_minus_alpha = 1.0 - self.alpha
-            for param, ema_param in zip(self.model.parameters(), self.ema_model.parameters()):
-                ema_param.data.mul_(self.alpha)
-                ema_param.data.add_(param.data.detach() * one_minus_alpha)
-                # customized weight decay
-                param.data.mul_(1 - self.wd)
+#             for ema_param, tmp_param in zip(self.ema_model.parameters(), self.tmp_model.parameters()):
+#                 ema_param.data.copy_(tmp_param.data.detach())
+#         else:
+#             one_minus_alpha = 1.0 - self.alpha
+#             for param, ema_param in zip(self.model.parameters(), self.ema_model.parameters()):
+#                 ema_param.data.mul_(self.alpha)
+#                 ema_param.data.add_(param.data.detach() * one_minus_alpha)
+#                 # customized weight decay
+#                 param.data.mul_(1 - self.wd)
 
-    def step_without_EMA(self, bn= False):
-        if bn:
-            # copy batchnorm stats to ema model
-            for ema_param, tmp_param in zip(self.ema_model.parameters(), self.tmp_model.parameters()):
-                tmp_param.data.copy_(ema_param.data.detach())
+#     def step_without_EMA(self, bn= False):
+#         if bn:
+#             # copy batchnorm stats to ema model
+#             for ema_param, tmp_param in zip(self.ema_model.parameters(), self.tmp_model.parameters()):
+#                 tmp_param.data.copy_(ema_param.data.detach())
 
-            self.ema_model.load_state_dict(self.model.state_dict())
+#             self.ema_model.load_state_dict(self.model.state_dict())
 
-            for ema_param, tmp_param in zip(self.ema_model.parameters(), self.tmp_model.parameters()):
-                ema_param.data.copy_(tmp_param.data.detach())
-        else:
-            for param, ema_param in zip(self.model.parameters(), self.ema_model.parameters()):
-                ema_param.data.copy_(param.data.detach())
-                # customized weight decay
-                param.data.mul_(1 - self.wd)
+#             for ema_param, tmp_param in zip(self.ema_model.parameters(), self.tmp_model.parameters()):
+#                 ema_param.data.copy_(tmp_param.data.detach())
+#         else:
+#             for param, ema_param in zip(self.model.parameters(), self.ema_model.parameters()):
+#                 ema_param.data.copy_(param.data.detach())
+#                 # customized weight decay
+#                 param.data.mul_(1 - self.wd)
 
 def interleave_offsets(batch, nu):
     groups = [batch // (nu + 1)] * (nu + 1)
