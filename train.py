@@ -388,7 +388,7 @@ def validate(valloader, model, criterion, epoch, use_cuda, mode):
     model.eval()
 
     end = time.time()
-    bar = Bar(f'{mode}', max=len(valloader))
+    bar = Bar("Validating", max=len(valloader))
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(valloader):
             # measure data loading time
